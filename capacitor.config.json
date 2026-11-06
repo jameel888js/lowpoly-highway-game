@@ -1,0 +1,6 @@
+{
+  "appId": "com.lowpoly.highway",
+  "appName": "LowPoly Highway",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

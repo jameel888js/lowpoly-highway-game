@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>LowPoly Highway</title>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+    #hud {
+      position: absolute; top: 20px; left: 20px; color: #fff; font-size: 20px;
+      font-weight: bold; text-shadow: 1px 1px 4px #000; pointer-events: none; z-index: 10;
+    }
+    #gameover {
+      display: none; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      color: #ff3333; font-size: 32px; font-weight: bold; text-align: center; z-index: 20;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="hud">
+    <div>SPEED: <span id="speedVal">90</span> KM/H</div>
+    <div>SCORE: <span id="scoreVal">0</span> M</div>
+  </div>
+  <div id="gameover">
+    CRASHED!<br><span style="font-size: 18px; color: #fff;">TAP TO RESTART</span>
+  </div>
+
+  <script>
+    // 1. SCENE & CAMERA SETUP
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a24);
+    scene.fog = new THREE.Fog(0x1a1a24, 40, 160);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    // 2. LIGHTING
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffeedd, 0.8);
+    dirLight.position.set(20, 40, -20);
+    scene.add(dirLight);
+
+    // 3. LOW-POLY CAR BUILDER FUNCTION
+    function createCar(colorHex) {
+      const carGroup = new THREE.Group();
+      const bodyMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
+      const cabinMat = new THREE.MeshLambertMaterial({ color: 0x111111, flatShading: true });
+      const wheelMat = new THREE.MeshLambertMaterial({ color: 0x222222, flatShading: true });
+
+      // Chassis
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 3.6), bodyMat);
+      body.position.y = 0.5;
+      carGroup.add(body);
+
+      // Cabin / Roof
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.45, 1.8), cabinMat);
+      cabin.position.set(0, 0.95, -0.2);
+      carGroup.add(cabin);
+
+      // Wheels
+      const wheelGeo = new THREE.BoxGeometry(0.3, 0.5, 0.7);
+      const positions = [[-0.85, 0.25, 1.1], [0.85, 0.25, 1.1], [-0.85, 0.25, -1.1], [0.85, 0.25, -1.1]];
+      positions.forEach(pos => {
+        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+        wheel.position.set(...pos);
+        carGroup.add(wheel);
+      });
+
+      return carGroup;
+    }
+
+    // 4. ROAD SEGMENTS (ENDLESS LOOP)
+    const lanes = [-2.8, 0, 2.8];
+    const roadChunks = [];
+    const roadMat = new THREE.MeshLambertMaterial({ color: 0x2b2b33, flatShading: true });
+    const roadGeo = new THREE.BoxGeometry(9.0, 0.2, 60);
+
+    for (let i = 0; i < 4; i++) {
+      const road = new THREE.Mesh(roadGeo, roadMat);
+      road.position.set(0, -0.1, i * 60);
+      scene.add(road);
+      roadChunks.push(road);
+    }
+
+    // 5. PLAYER & TRAFFIC INITIALIZATION
+    const player = createCar(0xd32f2f); // Red Sports Car
+    scene.add(player);
+
+    let currentLane = 1;
+    let targetX = 0;
+    let playerSpeed = 50;
+    let isGameOver = false;
+
+    const traffic = [];
+    const trafficColors = [0x1976d2, 0x388e3c, 0xfbc02d, 0x7b1fa2];
+    for (let i = 0; i < 5; i++) {
+      const tCar = createCar(trafficColors[i % trafficColors.length]);
+      tCar.position.set(lanes[Math.floor(Math.random() * 3)], 0, 40 + i * 35);
+      scene.add(tCar);
+      traffic.push(tCar);
+    }
+
+    // 6. TOUCH / CLICK CONTROLS (Left/Right Screen Tap)
+    window.addEventListener('pointerdown', (e) => {
+      if (isGameOver) {
+        // Restart game
+        player.position.set(0, 0, 0);
+        currentLane = 1;
+        targetX = 0;
+        playerSpeed = 50;
+        traffic.forEach((car, index) => {
+          car.position.set(lanes[Math.floor(Math.random() * 3)], 0, 40 + index * 35);
+        });
+        document.getElementById('gameover').style.display = 'none';
+        isGameOver = false;
+        return;
+      }
+
+      if (e.clientX < window.innerWidth / 2) {
+        if (currentLane > 0) currentLane--; // Steer Left
+      } else {
+        if (currentLane < 2) currentLane++; // Steer Right
+      }
+      targetX = lanes[currentLane];
+    });
+
+    // 7. GAME ANIMATION LOOP
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+
+      if (!isGameOver) {
+        // Move forward
+        player.position.z += playerSpeed * dt;
+        player.position.x += (targetX - player.position.x) * 12 * dt;
+
+        // Camera tracks player
+        camera.position.set(player.position.x * 0.4, 5.0, player.position.z - 8.5);
+        camera.lookAt(player.position.x * 0.6, 1.2, player.position.z + 10);
+
+        // Recycle endless road chunks
+        roadChunks.forEach(chunk => {
+          if (chunk.position.z < player.position.z - 40) {
+            chunk.position.z += 240;
+          }
+        });
+
+        // Update Traffic & Check Collisions
+        traffic.forEach(car => {
+          car.position.z += 20 * dt; // Traffic moves forward at 20 m/s
+
+          // Recycle traffic car when behind player
+          if (car.position.z < player.position.z - 15) {
+            car.position.z = player.position.z + 120 + Math.random() * 40;
+            car.position.x = lanes[Math.floor(Math.random() * 3)];
+          }
+
+          // AABB Bounding Box Collision Check
+          const dx = Math.abs(player.position.x - car.position.x);
+          const dz = Math.abs(player.position.z - car.position.z);
+          if (dx < 1.4 && dz < 3.2) {
+            isGameOver = true;
+            document.getElementById('gameover').style.display = 'block';
+          }
+        });
+
+        // Update HUD
+        document.getElementById('scoreVal').innerText = Math.floor(player.position.z);
+        playerSpeed = Math.min(100, 50 + player.position.z * 0.01);
+        document.getElementById('speedVal').innerText = Math.floor(playerSpeed * 2);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>
